@@ -7,6 +7,7 @@ from enum import Enum
 
 class SupportedLanguage(Enum):
     """Supported languages for translation"""
+
     ENGLISH = "en"
     VIETNAMESE = "vi"
     CHINESE = "zh"
@@ -37,6 +38,7 @@ class SupportedLanguage(Enum):
 
 class FileType(Enum):
     """Supported file types for translation"""
+
     PDF = "pdf"
     DOCX = "docx"
     PPTX = "pptx"

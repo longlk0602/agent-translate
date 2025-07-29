@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
-from pathlib import Path    
+from pathlib import Path
+from typing import Any, Dict, List
 
 
 class BaseTranslator(ABC):
     """Abstract base class for translation processors"""
+
     @abstractmethod
     def translate_text(self, text: str) -> str:
         """Translate a single text block"""

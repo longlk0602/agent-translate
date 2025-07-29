@@ -3,13 +3,15 @@ Data classes for the translation agent
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 from .enums import SupportedLanguage
 
 
 @dataclass
 class TranslationRequest:
     """Request object for document translation"""
+
     source_file_path: str
     target_language: SupportedLanguage
     source_language: Optional[SupportedLanguage] = None
@@ -21,6 +23,7 @@ class TranslationRequest:
 @dataclass
 class TranslationResult:
     """Result object from document translation"""
+
     translated_file_path: str
     translation_log: List[Dict[str, Any]]
     word_count: int
