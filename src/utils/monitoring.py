@@ -28,10 +28,10 @@ class TranslationMonitor:
 
         # Check API connections
         checks["openai_available"] = (
-            self.agent.translation_engine.openai_engine is not None
+            self.agent.translation_engine.openai_translator is not None
         )
-        checks["anthropic_available"] = (
-            self.agent.translation_engine.anthropic_engine is not None
+        checks["azure_available"] = (
+            self.agent.translation_engine.azure_translator is not None
         )
 
         # Check memory usage if psutil is available

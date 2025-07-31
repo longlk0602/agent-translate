@@ -13,7 +13,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
-from .base import BaseDocumentProcessor
+from processors.base import BaseDocumentProcessor
 
 
 class PDFProcessor(BaseDocumentProcessor):
@@ -261,6 +261,9 @@ class PDFProcessor(BaseDocumentProcessor):
                 print(f"Phương pháp 2 thất bại: {e2}")
                 # Phương pháp 3: Tạo PDF text-only
                 return self.create_text_only_pdf(translated_content, output_path)
+
+    def get_pairs_translation(self, translated_content):
+        return super().get_pairs_translation(translated_content)
 
     def create_text_only_pdf(
         self, translated_content: Dict[str, Any], output_path: str

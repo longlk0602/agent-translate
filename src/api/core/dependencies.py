@@ -4,20 +4,21 @@ Core dependencies and configurations for the API
 
 import os
 from typing import Optional
+from dotenv import load_dotenv
 
 from fastapi import HTTPException
 
 from translate.azure_translator import AzureTranslator
 from translate.openai_translator import OpenAITranslator
 
-
+load_dotenv()
 class BaseTranslationService:
     """Core translation service using proper processors"""
 
     def __init__(
         self,
         openai_api_key: Optional[str] = None,
-        azure_api_key: Optional[str] = None,
+        azure_api_key: Optional[str]    = None,
         azure_region: Optional[str] = None,
     ):
         self.openai_api_key = openai_api_key
@@ -86,11 +87,11 @@ def get_base_translation_service() -> BaseTranslationService:
 
 
 def get_translation_service():
-    """Get enhanced translation service with document processing"""
-    from api.v1.services.translation_service import TranslationService
+    """Get enhanced translation service with document processing and session management using existing processors"""
+    from api.v1.services.session_based_translation_service import EnhancedTranslationService
 
     base_service = get_base_translation_service()
-    return TranslationService(base_service)
+    return EnhancedTranslationService(base_service)
 
 
 def init_translation_service():

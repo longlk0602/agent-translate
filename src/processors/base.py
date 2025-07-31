@@ -22,6 +22,13 @@ class BaseDocumentProcessor(ABC):
     ) -> str:
         pass
 
+    @abstractmethod
+    def get_pairs_translation(
+        self, translated_content: Dict[str, Any]
+    ) -> Dict[str, str]:
+        """Extract translation pairs from translated content"""
+        return {}
+    
     def get_translatable_texts(self, extracted_content: Dict[str, Any]) -> List[str]:
         """Extract all translatable texts - to be overridden by subclasses"""
         return []

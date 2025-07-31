@@ -1,143 +1,202 @@
 """
-Translation chatbot for interactive editing
+Enhanced React-based translation chatbot using LLM and specialized tools
 """
 
-from typing import Any, Dict
+import json
+import logging
+from typing import Any, Dict, List, Optional
 
-from .translation_engine import TranslationEngine
+from core.react_agent import ReactTranslationAgent
+from core.llm_manager import LLMManager, OpenAIProvider, AzureOpenAIProvider
+
+logger = logging.getLogger(__name__)
 
 
 class TranslationChatbot:
-    """Chatbot for interactive translation editing"""
+    """React-based chatbot for interactive translation editing"""
 
-    def __init__(self, translation_engine: TranslationEngine):
+    def __init__(self, translation_engine=None, llm_config: Optional[Dict[str, Any]] = None):
+        # Keep backward compatibility
         self.translation_engine = translation_engine
+        
+        # Initialize LLM manager
+        if llm_config:
+            self.llm_manager = LLMManager.create_from_config(llm_config)
+        else:
+            # Default config - try to get from environment or translation_engine
+            self.llm_manager = self._create_default_llm_manager()
+        
+        # Initialize React agent
+        self.react_agent = ReactTranslationAgent(
+            llm_manager=self.llm_manager,
+            default_provider="openai"  # Can be configured
+        )
+        
+        # Legacy properties for backward compatibility
         self.conversation_history = []
         self.current_translations = {}
         self.pending_changes = {}
+        self.current_session = None
+        self.auto_apply_changes = False
 
-    async def process_message(
-        self, message: str, context: Dict[str, Any] = None
-    ) -> str:
-        """Process user message and return response"""
-
-        self.conversation_history.append({"role": "user", "content": message})
-
-        # Parse user intent
-        intent = self._parse_intent(message)
-
-        response = ""
-
-        if intent == "change_translation":
-            response = await self._handle_translation_change(message, context)
-        elif intent == "query_translation":
-            response = await self._handle_translation_query(message, context)
-        elif intent == "batch_changes":
-            response = await self._handle_batch_changes(message, context)
-        elif intent == "apply_changes":
-            response = await self._handle_apply_changes(context)
-        else:
-            response = await self._handle_general_chat(message, context)
-
-        self.conversation_history.append({"role": "assistant", "content": response})
-        return response
-
-    def _parse_intent(self, message: str) -> str:
-        """Parse user intent from message"""
-
-        message_lower = message.lower()
-
-        if any(
-            keyword in message_lower
-            for keyword in ["thay đổi", "sửa", "change", "replace"]
-        ):
-            return "change_translation"
-        elif any(
-            keyword in message_lower
-            for keyword in ["tìm", "tại sao", "why", "find", "search"]
-        ):
-            return "query_translation"
-        elif any(
-            keyword in message_lower
-            for keyword in ["hàng loạt", "batch", "all", "tất cả"]
-        ):
-            return "batch_changes"
-        elif any(
-            keyword in message_lower for keyword in ["áp dụng", "apply", "save", "lưu"]
-        ):
-            return "apply_changes"
-        else:
-            return "general_chat"
-
-    async def _handle_translation_change(
-        self, message: str, context: Dict[str, Any]
-    ) -> str:
-        """Handle translation change requests"""
-
-        # Extract source and target terms
-        # This is simplified - in production you'd use more sophisticated NLP
-
-        if "thay" in message.lower() and "thành" in message.lower():
-            parts = message.split("thành")
-            if len(parts) == 2:
-                source_term = parts[0].replace("thay", "").strip().strip("\"'")
-                target_term = parts[1].strip().strip("\"'")
-
-                self.pending_changes[source_term] = target_term
-
-                return f"Đã ghi nhận thay đổi: '{source_term}' -> '{target_term}'. Bạn có muốn áp dụng thay đổi này không?"
-
-        return "Tôi không hiểu yêu cầu thay đổi của bạn. Vui lòng sử dụng format: 'Thay [từ cũ] thành [từ mới]'"
-
-    async def _handle_translation_query(
-        self, message: str, context: Dict[str, Any]
-    ) -> str:
-        """Handle translation queries"""
-
-        # Search for terms in current translations
-        search_results = []
-
-        for source, target in self.current_translations.items():
-            if any(
-                term in source.lower() or term in target.lower()
-                for term in message.lower().split()
-            ):
-                search_results.append(f"'{source}' -> '{target}'")
-
-        if search_results:
-            return f"Tìm thấy {len(search_results)} kết quả:\n" + "\n".join(
-                search_results[:5]
+    def _create_default_llm_manager(self) -> LLMManager:
+        """Create default LLM manager from environment or translation engine"""
+        
+        manager = LLMManager()
+        
+        # Try to get API key from translation engine or environment
+        openai_api_key = None
+        azure_config = None
+        
+        if self.translation_engine:
+            # Extract API keys from translation engine if available
+            if hasattr(self.translation_engine, 'openai_api_key'):
+                openai_api_key = self.translation_engine.openai_api_key
+            elif hasattr(self.translation_engine, 'api_key'):
+                openai_api_key = self.translation_engine.api_key
+        
+        # Try environment variables
+        import os
+        if not openai_api_key:
+            openai_api_key = os.getenv('OPENAI_API_KEY')
+        
+        # Add OpenAI provider if key available
+        if openai_api_key:
+            provider = OpenAIProvider(api_key=openai_api_key)
+            manager.add_provider("openai", provider)
+        
+        # Try Azure OpenAI
+        azure_api_key = os.getenv('AZURE_OPENAI_API_KEY')
+        azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+        
+        if azure_api_key and azure_endpoint:
+            provider = AzureOpenAIProvider(
+                api_key=azure_api_key,
+                endpoint=azure_endpoint
             )
-        else:
-            return "Không tìm thấy kết quả phù hợp."
+            manager.add_provider("azure_openai", provider)
+        
+        return manager
 
-    async def _handle_batch_changes(self, message: str, context: Dict[str, Any]) -> str:
-        """Handle batch changes"""
+    async def process_message(self, message: str, context: Dict[str, Any] = None) -> str:
+        """Process user message using React Agent"""
+        
+        try:
+            # Set session context if provided
+            if context and "current_session" in context:
+                session_data = context["current_session"]
+                self.react_agent.set_session_context(session_data)
+                self.current_session = session_data
+            
+            # Process message through React agent
+            result = await self.react_agent.process_message(message)
+            
+            if result.get("success"):
+                response = result["response"]
+                
+                # Update legacy properties for backward compatibility
+                if result.get("content_updated"):
+                    self.auto_apply_changes = True
+                
+                # Update conversation history for backward compatibility
+                self.conversation_history = self.react_agent.get_conversation_history()
+                
+                return response
+            else:
+                error_msg = result.get("response", "I apologize, but I couldn't process your request.")
+                return error_msg
+                
+        except Exception as e:
+            logger.error(f"Error in process_message: {e}")
+            return f"I apologize, but there was an error processing your request: {str(e)}"
 
-        # This would implement batch change functionality
-        return "Chức năng thay đổi hàng loạt đang được phát triển."
+    def set_session_context(self, session_data: Dict[str, Any]):
+        """Set session context for the agent"""
+        self.react_agent.set_session_context(session_data)
+        self.current_session = session_data
+        
+        # Legacy compatibility - extract translation pairs
+        original_content = session_data.get("original_content", {})
+        translated_content = session_data.get("translated_content", {})
+        self.current_translations = self._extract_translation_pairs(
+            original_content, translated_content, session_data.get("file_type", "")
+        )
 
+    def _extract_translation_pairs(self, original_content: Dict[str, Any], translated_content: Dict[str, Any], file_type: str) -> Dict[str, str]:
+        """Extract translation pairs for backward compatibility"""
+        
+        pairs = {}
+        
+        try:
+            if file_type == ".txt":
+                if "text" in original_content and "text" in translated_content:
+                    pairs[original_content["text"]] = translated_content["text"]
+            
+            elif file_type == ".docx":
+                if "paragraphs" in original_content and "paragraphs" in translated_content:
+                    for orig_para, trans_para in zip(
+                        original_content["paragraphs"], translated_content["paragraphs"]
+                    ):
+                        orig_text = orig_para.get("original_text", orig_para.get("text", ""))
+                        trans_text = trans_para.get("text", "")
+                        if orig_text and trans_text:
+                            pairs[orig_text] = trans_text
+            
+            elif file_type == ".pptx":
+                if "slides" in original_content and "slides" in translated_content:
+                    for orig_slide, trans_slide in zip(
+                        original_content["slides"], translated_content["slides"]
+                    ):
+                        for orig_shape, trans_shape in zip(
+                            orig_slide.get("shapes", []), trans_slide.get("shapes", [])
+                        ):
+                            for orig_frame, trans_frame in zip(
+                                orig_shape.get("text_frames", []), trans_shape.get("text_frames", [])
+                            ):
+                                orig_text = orig_frame.get("original_text", "")
+                                trans_text = trans_frame.get("translated_text", "")
+                                if orig_text and trans_text:
+                                    pairs[orig_text] = trans_text
+            
+        except Exception as e:
+            logger.warning(f"Error extracting translation pairs: {e}")
+        
+        return pairs
+
+    def get_session_summary(self) -> Dict[str, Any]:
+        """Get session summary"""
+        return self.react_agent.get_session_summary()
+
+    def clear_conversation(self):
+        """Clear conversation history"""
+        self.react_agent.clear_conversation()
+        self.conversation_history = []
+
+    # Legacy methods for backward compatibility
+    def _parse_intent(self, message: str) -> str:
+        """Legacy method - now handled by LLM"""
+        return "llm_processed"
+    
+    async def _handle_translation_change(self, message: str, context: Dict[str, Any]) -> str:
+        """Legacy method - now handled by React agent"""
+        return await self.process_message(message, context)
+    
+    async def _handle_translation_query(self, message: str, context: Dict[str, Any]) -> str:
+        """Legacy method - now handled by React agent"""
+        return await self.process_message(message, context)
+    
+    async def _handle_view_changes(self, context: Dict[str, Any]) -> str:
+        """Legacy method - now handled by React agent"""
+        return await self.process_message("Show me what changes have been made", context)
+    
     async def _handle_apply_changes(self, context: Dict[str, Any]) -> str:
-        """Apply pending changes"""
-
-        if not self.pending_changes:
-            return "Không có thay đổi nào để áp dụng."
-
-        # Apply changes to current translations
-        for source, target in self.pending_changes.items():
-            # Find and replace in current translations
-            for key, value in self.current_translations.items():
-                if source in key:
-                    self.current_translations[key] = value.replace(source, target)
-                elif source in value:
-                    self.current_translations[key] = value.replace(source, target)
-
-        count = len(self.pending_changes)
-        self.pending_changes.clear()
-
-        return f"Đã áp dụng {count} thay đổi thành công."
-
+        """Legacy method - now handled by React agent"""
+        return await self.process_message("Apply all pending changes", context)
+    
+    async def _handle_clear_changes(self, context: Dict[str, Any]) -> str:
+        """Legacy method - now handled by React agent"""
+        return await self.process_message("Clear all pending changes", context)
+    
     async def _handle_general_chat(self, message: str, context: Dict[str, Any]) -> str:
-        """Handle general chat"""
-
-        return "Tôi có thể giúp bạn thay đổi các từ đã dịch. Hãy nói 'Thay [từ cũ] thành [từ mới]' để thay đổi bản dịch."
+        """Legacy method - now handled by React agent"""
+        return await self.process_message(message, context)

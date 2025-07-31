@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 import docx
 from docx import Document
 
-from .base import BaseDocumentProcessor
+from processors.base import BaseDocumentProcessor
 
 
 class DOCXProcessor(BaseDocumentProcessor):
@@ -144,6 +144,42 @@ class DOCXProcessor(BaseDocumentProcessor):
             texts.append(footer_data["text"])
 
         return texts
+    
+    def get_pairs_translation(self, translated_content: Dict[str, Any]) -> Dict[str, str]:
+        """Get translation pairs from translated content"""
+        pairs = {}
+
+        # Extract paragraphs
+        for para_data in translated_content["paragraphs"]:
+            original_text = para_data.get("original_text", "")
+            translated_text = para_data.get("text", "")
+            if original_text and translated_text:
+                pairs[original_text] = translated_text
+
+        # Extract tables
+        for table_data in translated_content["tables"]:
+            for row_data in table_data["rows"]:
+                for cell_data in row_data["cells"]:
+                    original_text = cell_data.get("original_text", "")
+                    translated_text = cell_data.get("text", "")
+                    if original_text and translated_text:
+                        pairs[original_text] = translated_text
+
+        # Extract headers
+        for header_data in translated_content["headers"]:
+            original_text = header_data.get("original_text", "")
+            translated_text = header_data.get("text", "")
+            if original_text and translated_text:
+                pairs[original_text] = translated_text
+
+        # Extract footers
+        for footer_data in translated_content["footers"]:
+            original_text = footer_data.get("original_text", "")
+            translated_text = footer_data.get("text", "")
+            if original_text and translated_text:
+                pairs[original_text] = translated_text
+
+        return pairs
 
     def apply_translations(
         self, extracted_content: Dict[str, Any], translations: List[str]

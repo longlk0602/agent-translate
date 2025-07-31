@@ -5,7 +5,7 @@ Data classes for the translation agent
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from .enums import SupportedLanguage
+from models.enums import SupportedLanguage
 
 
 @dataclass

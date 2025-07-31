@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from ..processors.base import DocumentProcessor
+from processors.base import DocumentProcessor
 
 
 class DictionaryManager:

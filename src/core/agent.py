@@ -1,33 +1,232 @@
 """
-Main translation agent that orchestrates all components
+Advanced translation agent with session management and chatbot capabilities
 """
 
 import asyncio
+import copy
 import logging
-from pathlib import Path
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, List, Optional
 
-from ..models.data_classes import TranslationRequest, TranslationResult
-from ..models.enums import SupportedLanguage
-from ..processors.base import DocumentProcessor
-from .chatbot import TranslationChatbot
-from .dictionary_manager import DictionaryManager
-from .translation_engine import TranslationEngine
+from models.data_classes import TranslationRequest, TranslationResult
+from processors.base import DocumentProcessor
+from core.dictionary_manager import DictionaryManager
+from core.translation_engine import TranslationEngine
+from core.chatbot import TranslationChatbot
+
+import asyncio
+import copy
+import logging
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+from models.data_classes import TranslationRequest, TranslationResult
+from models.enums import SupportedLanguage
+from processors.base import DocumentProcessor
+from core.chatbot import TranslationChatbot
+from core.dictionary_manager import DictionaryManager
+from core.translation_engine import TranslationEngine
 
 logger = logging.getLogger(__name__)
 
 
 class TranslationAgent:
-    """Main translation agent that orchestrates all components"""
+    """Enhanced translation agent for session-based workflow with interactive editing"""
 
-    def __init__(self, openai_api_key: str = None, anthropic_api_key: str = None):
+    def __init__(self, openai_api_key: str = None, azure_api_key: str = None):
         self.document_processor = DocumentProcessor()
-        self.translation_engine = TranslationEngine(openai_api_key, anthropic_api_key)
+        self.translation_engine = TranslationEngine(openai_api_key, azure_api_key)
         self.dictionary_manager = DictionaryManager()
         self.chatbot = TranslationChatbot(self.translation_engine)
 
-        self.active_translations = {}
+        # Session-specific state
+        self.current_session = None
+        self.pending_changes = {}
         self.translation_history = []
+
+    def set_session_context(self, session_data: Dict[str, Any]):
+        """Set current session context for the agent"""
+        self.current_session = session_data
+        file_type = session_data.get("file_type")
+        # Extract translation pairs for chatbot context
+        original_content = session_data.get("original_content", {})
+        translated_content = session_data.get("translated_content", {})
+        
+        self.chatbot.current_translations = self._extract_translation_pairs(
+            file_type, translated_content
+        )
+        self.chatbot.current_session = session_data
+        self.pending_changes = {}
+
+    async def process_chat_message(self, message: str) -> Dict[str, Any]:
+        """Process chat message and return response with any content updates"""
+        
+        if not self.current_session:
+            return {
+                "response": "Không có session nào đang hoạt động. Vui lòng upload file trước.",
+                "content_updated": False,
+                "pending_changes": 0
+            }
+
+        # Process message through chatbot
+        response = await self.chatbot.process_message(message, {
+            "current_session": self.current_session,
+            "original_content": self.current_session.get("original_content", {}),
+            "translated_content": self.current_session.get("translated_content", {})
+        })
+
+        # Check if there are pending changes
+        pending_count = len(self.chatbot.pending_changes)
+        
+        # Check if changes should be auto-applied
+        content_updated = False
+        if self.chatbot.auto_apply_changes and self.chatbot.pending_changes:
+            content_updated = await self._apply_pending_changes()
+            
+        return {
+            "response": response,
+            "content_updated": content_updated,
+            "pending_changes": pending_count,
+            "updated_content": self.current_session.get("translated_content", {}) if content_updated else None
+        }
+
+    async def _apply_pending_changes(self) -> bool:
+        """Apply pending changes to the current session content"""
+        
+        if not self.chatbot.pending_changes or not self.current_session:
+            return False
+
+        try:
+            translated_content = self.current_session.get("translated_content", {})
+            updated_content = self._apply_changes_to_content(
+                translated_content, 
+                self.chatbot.pending_changes
+            )
+            
+            # Update session content
+            self.current_session["translated_content"] = updated_content
+            
+            # Update chatbot's current translations
+            original_content = self.current_session.get("original_content", {})
+            self.chatbot.current_translations = self._extract_translation_pairs(
+                original_content, updated_content
+            )
+            
+            # Clear pending changes
+            self.chatbot.pending_changes.clear()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error applying changes: {e}")
+            return False
+
+    def _apply_changes_to_content(self, content: Dict[str, Any], changes: Dict[str, str]) -> Dict[str, Any]:
+        """Apply changes to content structure"""
+        
+        updated_content = copy.deepcopy(content)
+        
+        if "text" in updated_content:
+            # Simple text file
+            for old_text, new_text in changes.items():
+                updated_content["text"] = updated_content["text"].replace(old_text, new_text)
+                
+        elif "paragraphs" in updated_content:
+            # DOCX file
+            for para in updated_content["paragraphs"]:
+                for old_text, new_text in changes.items():
+                    para["text"] = para["text"].replace(old_text, new_text)
+                    # Also update runs
+                    for run in para.get("runs", []):
+                        run["text"] = run["text"].replace(old_text, new_text)
+                        
+        elif "pages" in updated_content:
+            # PDF file
+            for page in updated_content["pages"]:
+                for old_text, new_text in changes.items():
+                    page["text"] = page["text"].replace(old_text, new_text)
+                    
+        elif "slides" in updated_content:
+            # PPTX file
+            for slide in updated_content["slides"]:
+                for shape in slide.get("shapes", []):
+                    for text_frame in shape.get("text_frames", []):
+                        for old_text, new_text in changes.items():
+                            if "translated_text" in text_frame:
+                                text_frame["translated_text"] = text_frame["translated_text"].replace(old_text, new_text)
+                            elif "text" in text_frame:
+                                text_frame["text"] = text_frame["text"].replace(old_text, new_text)
+                                
+        elif "sheets" in updated_content:
+            # XLSX file
+            for sheet in updated_content["sheets"]:
+                for row in sheet.get("cells", []):
+                    for cell in row:
+                        for old_text, new_text in changes.items():
+                            if "value" in cell:
+                                cell["value"] = str(cell["value"]).replace(old_text, new_text)
+        
+        return updated_content
+
+    async def apply_all_pending_changes(self) -> Dict[str, Any]:
+        """Manually apply all pending changes"""
+        
+        if not self.chatbot.pending_changes:
+            return {
+                "success": False,
+                "message": "Không có thay đổi nào để áp dụng."
+            }
+        
+        changes_count = len(self.chatbot.pending_changes)
+        success = await self._apply_pending_changes()
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Đã áp dụng {changes_count} thay đổi thành công.",
+                "updated_content": self.current_session.get("translated_content", {})
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Có lỗi khi áp dụng thay đổi."
+            }
+
+    def get_pending_changes(self) -> Dict[str, str]:
+        """Get current pending changes"""
+        return self.chatbot.pending_changes.copy()
+
+    def clear_pending_changes(self):
+        """Clear all pending changes"""
+        self.chatbot.pending_changes.clear()
+
+    def get_session_summary(self) -> Dict[str, Any]:
+        """Get summary of current session"""
+        
+        if not self.current_session:
+            return {"message": "Không có session nào đang hoạt động"}
+        
+        return {
+            "session_id": self.current_session.get("session_id"),
+            "file_name": self.current_session.get("file_name"),
+            "file_type": self.current_session.get("file_type"),
+            "source_lang": self.current_session.get("source_lang"),
+            "target_lang": self.current_session.get("target_lang"),
+            "created_at": self.current_session.get("created_at"),
+            "word_count": self._count_words_in_session(),
+            "pending_changes": len(self.chatbot.pending_changes),
+            "chat_history_length": len(self.chatbot.conversation_history)
+        }
+
+    def _count_words_in_session(self) -> int:
+        """Count words in current session content"""
+        
+        if not self.current_session:
+            return 0
+            
+        content = self.current_session.get("original_content", {})
+        return self._count_words(content)
 
     async def translate_document(
         self, request: TranslationRequest
@@ -201,32 +400,16 @@ class TranslationAgent:
         return len(text_content.split())
 
     def _extract_translation_pairs(
-        self, original_content: Dict[str, Any], translated_content: Dict[str, Any]
+        self, file_type: str, translated_content: Dict[str, Any]
     ) -> Dict[str, str]:
         """Extract original->translated pairs for chatbot"""
 
         pairs = {}
-
-        if "text" in original_content:
-            pairs[original_content["text"]] = translated_content["text"]
-        elif "paragraphs" in original_content:
-            for orig_para, trans_para in zip(
-                original_content["paragraphs"], translated_content["paragraphs"]
-            ):
-                pairs[orig_para["text"]] = trans_para["text"]
-        elif "pages" in original_content:
-            for orig_page, trans_page in zip(
-                original_content["pages"], translated_content["pages"]
-            ):
-                pairs[orig_page["text"]] = trans_page["text"]
-        elif "slides" in original_content:
-            for orig_slide, trans_slide in zip(
-                original_content["slides"], translated_content["slides"]
-            ):
-                for orig_frame, trans_frame in zip(
-                    orig_slide["text_frames"], trans_slide["text_frames"]
-                ):
-                    pairs[orig_frame["text"]] = trans_frame["text"]
+        try:
+            processor = self.document_processor._get_processor(file_type)
+            pairs = processor.get_pairs_translation(translated_content)
+        except Exception as e:
+            logger.warning(f"Error extracting translation pairs: {e}")
 
         return pairs
 

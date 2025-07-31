@@ -126,7 +126,21 @@ async def translate_uploaded_document(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return a proper error response that matches the schema
+        return DocumentTranslationResponse(
+            success=False,
+            error=str(e),
+            original_file=temp_file.name if temp_file else "unknown",
+            translated_file=None,
+            source_lang=source_lang or "auto",
+            target_lang=target_lang,
+            model_used=f"{model_provider}_{model_name}",
+            text_count=0,
+            translation_count=0,
+            file_size=None,
+            file_type=None,
+            processing_time=0.0,
+        )
     finally:
         # Clean up temporary file
         if temp_file and os.path.exists(temp_file.name):
@@ -167,137 +181,21 @@ async def translate_document_by_path(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post(
-    "/compare/upload",
-    response_model=ModelComparisonResponse,
-    summary="Compare models on uploaded document",
-    description="Compare multiple translation models on an uploaded document",
-)
-async def compare_models_on_upload(
-    file: UploadFile = File(..., description="Document file to translate"),
-    target_lang: str = Form(default="vi", description="Target language"),
-    context: Optional[str] = Form(default=None, description="Translation context"),
-    glossary: Optional[str] = Form(default=None, description="Glossary as JSON string"),
-    models: Optional[str] = Form(
-        default=None, description="Models to compare as JSON string"
-    ),
-    service: TranslationService = Depends(get_translation_service),
-) -> ModelComparisonResponse:
-    """Compare multiple models on uploaded document"""
-
-    temp_file = None
-    try:
-        # Save uploaded file temporarily
-        suffix = Path(file.filename).suffix if file.filename else ""
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        content = await file.read()
-        temp_file.write(content)
-        temp_file.close()
-
-        # Parse inputs
-        parsed_glossary = None
-        if glossary:
-            import json
-
-            parsed_glossary = json.loads(glossary)
-
-        parsed_models = None
-        if models:
-            import json
-
-            parsed_models = json.loads(models)
-
-        # Compare models
-        result = await service.compare_models_for_document(
-            file_path=temp_file.name,
-            target_lang=target_lang,
-            models=parsed_models,
-            context=context,
-            glossary=parsed_glossary,
-        )
-
-        return ModelComparisonResponse(**result)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if temp_file and os.path.exists(temp_file.name):
-            os.unlink(temp_file.name)
-
-
-@router.post(
-    "/compare/path",
-    response_model=ModelComparisonResponse,
-    summary="Compare models on document by path",
-    description="Compare multiple translation models on a document by file path",
-)
-async def compare_models_by_path(
-    request: ModelComparisonRequest,
-    file_path: str,
-    service: TranslationService = Depends(get_translation_service),
-) -> ModelComparisonResponse:
-    """Compare models on document by file path"""
-
-    try:
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-
-        # Convert ModelConfig objects to dicts
-        models_dict = None
-        if request.models:
-            models_dict = [
-                {
-                    "provider": model.provider.value,
-                    "model": model.model,
-                    "temperature": model.temperature,
-                }
-                for model in request.models
-            ]
-
-        result = await service.compare_models_for_document(
-            file_path=file_path,
+        # Return a proper error response that matches the schema
+        return DocumentTranslationResponse(
+            success=False,
+            error=str(e),
+            original_file=file_path,
+            translated_file=None,
+            source_lang=request.source_lang.value if request.source_lang else "auto",
             target_lang=request.target_lang.value,
-            models=models_dict,
-            context=request.context,
-            glossary=request.glossary,
+            model_used=f"{request.model_provider.value}_{request.model_name}",
+            text_count=0,
+            translation_count=0,
+            file_size=None,
+            file_type=None,
+            processing_time=0.0,
         )
-
-        return ModelComparisonResponse(**result)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get(
-    "/document/info",
-    response_model=DocumentInfoResponse,
-    summary="Get document information",
-    description="Get information about a document without translating",
-)
-async def get_document_info(
-    file_path: str, service: TranslationService = Depends(get_translation_service)
-) -> DocumentInfoResponse:
-    """Get document information"""
-
-    try:
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-
-        result = service.get_document_info(file_path)
-        return DocumentInfoResponse(**result)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get(
     "/formats",

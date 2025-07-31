@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from pptx import Presentation
 
-from .base import BaseDocumentProcessor
+from processors.base import BaseDocumentProcessor
 
 
 class PPTXProcessor(BaseDocumentProcessor):
@@ -175,6 +175,37 @@ class PPTXProcessor(BaseDocumentProcessor):
                             if cell_data["text"].strip():
                                 texts.append(cell_data["text"])
         return texts
+    
+    def get_pairs_translation(self, translated_content: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Extract original->translated pairs from the translated content structure
+        Param:
+            translated_content (Dict[str, Any]): The translated content structure
+        Returns:
+            Dict[str, str]: Dictionary of original text to translated text pairs
+        """
+        pairs = {}
+        for slide_data in translated_content["slides"]:
+            for shape_data in slide_data["shapes"]:
+                # Handle text frames
+                if shape_data["text_frames"]:
+                    for frame_data in shape_data["text_frames"]:
+                        if frame_data["original_text"] and frame_data["text"].strip():
+                            pairs[frame_data["original_text"]] = frame_data["text"]
+
+                # Handle direct text content
+                elif shape_data["text_content"]:
+                    if shape_data.get("original_text") and shape_data["text_content"].strip():
+                        pairs[shape_data["original_text"]] = shape_data["text_content"]
+
+                # Handle table data
+                elif shape_data.get("table_data"):
+                    for row_data in shape_data["table_data"]:
+                        for cell_data in row_data["cells"]:
+                            if cell_data.get("original_text") and cell_data["text"].strip():
+                                pairs[cell_data["original_text"]] = cell_data["text"]
+        
+        return pairs
 
     def apply_translations(
         self, extracted_content: Dict[str, Any], translations: List[str]

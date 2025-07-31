@@ -9,7 +9,7 @@ import openpyxl
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from .base import BaseDocumentProcessor
+from processors.base import BaseDocumentProcessor
 
 
 class XLSXProcessor(BaseDocumentProcessor):
@@ -106,6 +106,19 @@ class XLSXProcessor(BaseDocumentProcessor):
                         texts.append(cell_data["text"])
 
         return texts
+
+    def get_pairs_translation(
+        self, translated_content: Dict[str, Any],
+    ):
+        pairs = {}
+        for sheet_data in translated_content["worksheets"]:
+            for cell_data in sheet_data["cells"]:
+                # Only consider text cells
+                if isinstance(cell_data["text"], str) and cell_data["text"].strip():
+                    original_text = cell_data.get("original_text", cell_data["text"])
+                    translated_text = cell_data["text"]
+                    pairs[original_text] = translated_text
+        return pairs
 
     def apply_translations(
         self, extracted_content: Dict[str, Any], translations: List[str]

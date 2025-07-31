@@ -4,7 +4,7 @@ TXT document processor
 
 from typing import Any, Dict
 
-from .base import BaseDocumentProcessor
+from processors.base import BaseDocumentProcessor
 
 
 class TXTProcessor(BaseDocumentProcessor):
@@ -15,7 +15,9 @@ class TXTProcessor(BaseDocumentProcessor):
         with open(file_path, "r", encoding="utf-8") as f:
             content = {"text": f.read(), "lines": f.readlines()}
         return content
-
+    def get_pairs_translation(self, translated_content):
+        return super().get_pairs_translation(translated_content)
+    
     def reconstruct_document(
         self, original_path: str, translated_content: Dict[str, Any], output_path: str
     ) -> str:

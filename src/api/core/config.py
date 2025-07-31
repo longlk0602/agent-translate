@@ -52,7 +52,7 @@ class Settings:
     # Translation settings
     DEFAULT_TARGET_LANGUAGE = "vi"
     DEFAULT_MODEL_PROVIDER = "openai"
-    DEFAULT_MODEL_NAME = "gpt-4o-mini"
+    DEFAULT_MODEL_NAME = "gpt-4.1-mini"
     DEFAULT_TEMPERATURE = 0.1
     DEFAULT_BATCH_SIZE = 10
 

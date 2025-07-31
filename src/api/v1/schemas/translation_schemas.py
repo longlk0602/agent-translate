@@ -20,6 +20,7 @@ class OpenAIModel(str, Enum):
     GPT_4O_MINI = "gpt-4o-mini"
     GPT_4_TURBO = "gpt-4-turbo"
     GPT_35_TURBO = "gpt-3.5-turbo"
+    GPT_4_1_MINI = "gpt-4.1-mini"
 
 
 class LanguageCode(str, Enum):
